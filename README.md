@@ -35,6 +35,41 @@ This project enables automated web browsing through AI-driven agents, allowing f
 - Web scraping and information gathering
 - Task automation for repetitive web-based workflows
 
+## Agent Architecture
+
+This diagram outlines the multi-agent architecture used for browser automation:
+
+```bash
+MasterAgent (Handles simple queries, dispatches complex tasks like web browsing)
+ │
+ └─> Calls -> LoopAgent (Manages the overall browser task cycle)
+               │
+               └─> BrowserCoordinatorAgent with Planner()
+                     │
+                     ├─ Has -> HumanInteractionAgent
+                     │           │
+                     │           └─ Has -> _
+                     │
+                     ├─ Has -> BrowserActionExecutorAgent
+                     │           │
+                     │           ├─ Has -> click_at()
+                     │           ├─ Has -> type_text()
+                     │           └─ Has Tool -> scroll_page()
+                     │                                          
+                     └─> Has -> ReflectionAgent
+```
+
+**Flow Summary:**
+
+1.  The `MasterAgent` delegates browser tasks to the `LoopAgent`.
+2.  The `LoopAgent` iterates, running the `SequentialAgent` in each cycle.
+3.  The `SequentialAgent` executes the `BrowserCoordinatorAgent`.
+4.  The `BrowserCoordinatorAgent` analyzes the browser state (screenshot).
+    *   If it needs user input (like login credentials), it calls the `HumanInteractionAgent` tool.
+    *   Otherwise, it determines the next browser action (e.g., "click button") and calls the `BrowserActionExecutorAgent` tool.
+5.  The `BrowserActionExecutorAgent` uses vision to find the target element on the screenshot and calls the appropriate low-level browser function tool (`click_at`, `type_text`, etc.).
+6.  The loop repeats, capturing a new state (screenshot) and continuing the process.
+
 ## Requirements
 
 - Python 3
