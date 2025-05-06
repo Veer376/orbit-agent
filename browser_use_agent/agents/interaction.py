@@ -3,9 +3,9 @@
 from google.adk.agents import LlmAgent
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from . import GEMINI_MODEL
+from .. import GEMINI_MODEL  # Changed import to get from parent package
 # Import the user input tool (will be defined later)
-from ..tools import get_user_input
+from ..tools import get_user_input_tool
 from ..schema import HumanInteractionInput
 
 # --- Agent Definition --- #
@@ -23,7 +23,7 @@ human_interaction_agent = LlmAgent(
     ),
     input_schema=HumanInteractionInput,
     tools=[
-        get_user_input,
+        get_user_input_tool,
     ],
     # This agent's job is just to get input and finish, update state via tool/callback if needed
     disallow_transfer_to_parent=True,

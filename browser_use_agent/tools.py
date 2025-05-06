@@ -2,68 +2,119 @@ from google.adk.tools import FunctionTool
 from playwright.sync_api import Page # Import Page for type hinting
 from pydantic import BaseModel, Field
 from typing import List, Optional
-import logging
 
 # Import the core action handler
 from .browser import handle_action
 from .schema import ClickArgs, TypeArgs, ScrollArgs, KeypressArgs, HumanInteractionInput
-
-# Setup logger
-logger = logging.getLogger(__name__)
+# Access to the global browser controller
+from .globals import BROWSER_CONTROLLER
 
 # --- Tool Functions ---
-def click_element(page: Page, args: ClickArgs):
-    """Clicks on the page at the specified coordinates."""
-    # Construct a mock function_call object for handle_action
-    mock_function_call = type('obj', (object,), {
-        'name': 'click',
-        'args': args.model_dump() # Use Pydantic model
-    })()
-    handle_action(mock_function_call, page)
-    return f"Clicked at ({args.points.x}, {args.points.y})" # Simple confirmation
-
-def type_text(page: Page, args: TypeArgs):
-    """Types the specified text into the currently focused element."""
-    mock_function_call = type('obj', (object,), {
-        'name': 'type',
-        'args': args.model_dump()
-    })()
-    handle_action(mock_function_call, page)
-    return f"Typed text: '{args.text}'"
-
-def scroll_page(page: Page, args: ScrollArgs):
-    """Scrolls the page up or down."""
-    mock_function_call = type('obj', (object,), {
-        'name': 'scroll',
-        'args': args.model_dump()
-    })()
-    handle_action(mock_function_call, page)
-    return f"Scrolled {args.direction} by {args.amount} pixels"
-
-def press_keys(page: Page, args: KeypressArgs):
-    """Presses the specified sequence of keys."""
-    mock_function_call = type('obj', (object,), {
-        'name': 'keypress',
-        'args': args.model_dump()
-    })()
-    handle_action(mock_function_call, page)
-    return f"Pressed keys: {', '.join(args.keys)}"
-
-# --- User Interaction Tool ---
-def get_user_input(prompt: str) -> str:
-    """
-    Prompts the user for input and returns their response.
+def click_element_wrapper(args: ClickArgs, tool_context=None):
+    """Tool for clicking elements on the webpage."""
+    from .globals import get_browser_controller, check_browser_controller
     
-    This tool allows the HumanInteractionAgent to request specific information
-    from the user when the browser automation requires human intervention.
+    # Diagnostic check
+    print("[CLICK_TOOL] Checking BROWSER_CONTROLLER in click_element_wrapper:")
+    has_controller = check_browser_controller()
     
-    Args:
-        prompt: The prompt to show to the user, explaining what information is needed.
+    # Get the browser controller using the getter function
+    browser_controller = get_browser_controller()
+    
+    if not browser_controller:
+        print("[ERROR] Browser controller not available for click operation")
+        return "Error: Browser controller is not available."
+    
+    try:
+        print(f"[CLICK_TOOL] Using browser controller: {browser_controller}")
+        success = browser_controller.click(
+            x=args.points.x, 
+            y=args.points.y,
+            label=args.label
+        )
         
-    Returns:
-        The user's response as a string.
-    """
-    logger.info(f"Requesting user input: {prompt}")
+        return f"{'Clicked' if success else 'Failed to click'} at ({args.points.x}, {args.points.y})"
+    except Exception as e:
+        print(f"[ERROR] Click error: {e}")
+        return f"Error when clicking: {str(e)}"
+
+def type_text_wrapper(args: TypeArgs, tool_context=None):
+    """Tool for typing text into input fields on the webpage."""
+    from .globals import get_browser_controller
+    
+    # Get the browser controller using the getter function
+    browser_controller = get_browser_controller()
+    
+    if not browser_controller:
+        print("[ERROR] Browser controller not available for type operation")
+        return "Error: Browser controller is not available."
+    
+    try:
+        success = browser_controller.type_text(
+            text=args.text,
+            label=args.label
+        )
+        
+        return f"{'Typed' if success else 'Failed to type'} text: '{args.text}'"
+    except Exception as e:
+        print(f"[ERROR] Type text error: {e}")
+        return f"Error when typing text: {str(e)}"
+
+def scroll_page_wrapper(args: ScrollArgs, tool_context=None):
+    """Tool for scrolling the webpage."""
+    from .globals import get_browser_controller
+    
+    # Get the browser controller using the getter function
+    browser_controller = get_browser_controller()
+    
+    if not browser_controller:
+        print("[ERROR] Browser controller not available for scroll operation")
+        return "Error: Browser controller is not available."
+    
+    # Extract coordinates if provided
+    x = None
+    y = None
+    if args.points:
+        x = args.points.x
+        y = args.points.y
+        
+    try:
+        success = browser_controller.scroll(
+            direction=args.direction,
+            amount=args.amount,
+            x=x,
+            y=y
+        )
+        
+        return f"{'Scrolled' if success else 'Failed to scroll'} {args.direction} by {args.amount} pixels"
+    except Exception as e:
+        print(f"[ERROR] Scroll error: {e}")
+        return f"Error when scrolling: {str(e)}"
+
+def press_keys_wrapper(args: KeypressArgs, tool_context=None):
+    """Tool for pressing keyboard keys."""
+    from .globals import get_browser_controller
+    
+    # Get the browser controller using the getter function
+    browser_controller = get_browser_controller()
+    
+    if not browser_controller:
+        print("[ERROR] Browser controller not available for key press operation")
+        return "Error: Browser controller is not available."
+    
+    try:
+        success = browser_controller.press_keys(
+            keys=args.keys
+        )
+        
+        return f"{'Pressed' if success else 'Failed to press'} keys: {', '.join(args.keys)}"
+    except Exception as e:
+        print(f"[ERROR] Key press error: {e}")
+        return f"Error when pressing keys: {str(e)}"
+
+def get_user_input_wrapper(prompt: str, tool_context=None) -> str:
+    """Tool for getting input from the human user."""
+    print(f"[INFO] Requesting user input: {prompt}")
     
     # Print a clear separator to make the prompt stand out
     print("\n" + "="*50)
@@ -74,27 +125,15 @@ def get_user_input(prompt: str) -> str:
     # Get the user's input
     user_response = input("Your response: ")
     
-    logger.info(f"Received user input: {user_response[:20]}{'...' if len(user_response) > 20 else ''}")
+    print(f"[INFO] Received user input: {user_response[:20]}{'...' if len(user_response) > 20 else ''}")
     return user_response
 
-# --- ADK Tool Definitions ---
-# Wrap the Python functions into ADK FunctionTools
-
-# Note: The standard FunctionTool doesn't automatically handle injecting
-# the 'page' object. The ExecutorAgent will need custom logic (e.g., in
-# a before_tool_callback or by overriding tool execution) to pass the
-# 'page' object from its BrowserController instance to these functions.
-
-click_tool = FunctionTool(func=click_element, name="click_element")
-type_tool = FunctionTool(func=type_text, name="type_text")
-scroll_tool = FunctionTool(func=scroll_page, name="scroll_page")
-keypress_tool = FunctionTool(func=press_keys, name="press_keys")
-
-# Add the user input tool
-get_user_input_tool = FunctionTool(
-    func=get_user_input,
-    name="get_user_input"
-)
+# Create the FunctionTool instances with the proper wrapper functions
+click_tool = FunctionTool(click_element_wrapper)
+type_tool = FunctionTool(type_text_wrapper)
+scroll_tool = FunctionTool(scroll_page_wrapper)
+keypress_tool = FunctionTool(press_keys_wrapper)
+get_user_input_tool = FunctionTool(get_user_input_wrapper)
 
 # Export the tools
 __all__ = [

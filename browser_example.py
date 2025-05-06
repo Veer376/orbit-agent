@@ -1,24 +1,17 @@
 """Example script demonstrating how to use the browser agent."""
 
 import os
-import logging
+import dotenv
 from browser_use_agent.runner import run_browser_agent
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
-# Set environment variables if not already set
-# os.environ["GOOGLE_API_KEY"] = "your_key_here"  # Uncomment and set your key if needed
-# os.environ["GEMINI_MODEL"] = "gemini-1.5-flash"  # Uncomment and set your preferred model
+# Load environment variables from .env file
+dotenv.load_dotenv()
 
 def main():
     """Run an example browser automation task."""
     
     # Define a goal for the browser agent
-    user_goal = "Search for 'Python programming tutorials' on Bing and find the first official Python tutorial link"
+    user_goal = "Book me a movie ticket - Animal"
     
     # The starting URL
     initial_url = "https://www.bing.com/"
@@ -31,7 +24,7 @@ def main():
     result = run_browser_agent(
         user_goal=user_goal,
         initial_url=initial_url,
-        max_iterations=15  # Allow more iterations for complex tasks
+        max_iterations=5  # Allow more iterations for complex tasks
     )
     
     # Print the final result

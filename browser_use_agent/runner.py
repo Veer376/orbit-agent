@@ -1,6 +1,5 @@
 """Initializes and runs the Browser Loop Agent with proper state management."""
 
-import logging
 import os
 import traceback
 from typing import List, Optional, Dict, Any
@@ -11,9 +10,10 @@ from google.adk.events.event import Event
 
 # Import our agents and browser controller
 from .agent import browser_loop_agent
-from .browser import BrowserController, screenshot
-
-logger = logging.getLogger(__name__)
+from .browser import BrowserController
+# Import the global browser controller reference
+from .globals import BROWSER_CONTROLLER
+from .globals import check_browser_controller
 
 def run_browser_agent(
     user_goal: str,
@@ -28,17 +28,15 @@ def run_browser_agent(
     Args:
         user_goal: The user's intended goal for browser automation
         initial_url: The starting URL to navigate to
-        api_key: Google API key (optional, defaults to environment variable)
+        api_key: Google API key (optional, ADK will use environment variable by default)
         max_iterations: Maximum iteration limit for the loop agent
         additional_state: Any additional state values to initialize the session with
         
     Returns:
         Dict containing final_result (str), success (bool), and events (list)
     """
-    # Set API key from parameter or environment
-    if api_key:
-        os.environ["GOOGLE_API_KEY"] = api_key
-
+    global BROWSER_CONTROLLER
+    
     # Initialize browser
     browser_controller = None
     result = {
@@ -50,30 +48,35 @@ def run_browser_agent(
     
     try:
         # Initialize browser
-        logger.info("Initializing browser controller")
+        print("[INFO] Initializing browser controller")
         browser_controller = BrowserController()
+        BROWSER_CONTROLLER = browser_controller  # Store in global variable for tools to access
+        
+        # Call our diagnostic function to check BROWSER_CONTROLLER status in runner.py
+        print("[RUNNER] Checking BROWSER_CONTROLLER after initialization:")
+        check_browser_controller()
+        
+        if BROWSER_CONTROLLER: print("[INFO] Browser controller initialized successfully")
+        else: print("[ERROR] Browser controller initialization failed")
         
         # Navigate to initial URL
-        logger.info(f"Navigating to initial URL: {initial_url}")
+        print(f"[INFO] Navigating to initial URL: {initial_url}")
         browser_controller.navigate(initial_url)
         
-        # Take initial screenshot
-        initial_screenshot = screenshot(browser_controller)
-        logger.info("Captured initial screenshot")
+        # Take initial screenshot - now using the method directly from browser_controller
+        initial_screenshot_part = browser_controller.screenshot()
+        print("[INFO] Captured initial screenshot")
         
-        # Prepare initial state
+        # Prepare initial state - DON'T store browser_controller directly
         initial_state = {
-            # Store browser_controller in state for tools to access
-            "browser_instance": browser_controller,
-            # Store goal in state for agents to reference
+            "has_browser_instance": True,
             "user_goal": user_goal,
-            # Track iterations for safety
             "iteration_count": 0,
             "max_iterations": max_iterations,
-            # Initialize flags
             "task_completed": False,
             "task_failed": False,
             "exit_loop": False,
+            "current_screenshot": initial_screenshot_part.inline_data
         }
         
         # Add any additional state provided
@@ -88,20 +91,20 @@ def run_browser_agent(
             state=initial_state
         )
         
+        # Create initial message with user goal and screenshot
+        initial_message = types.Content(
+            role='user',
+            parts=[
+                types.Part(text=f"Goal: {user_goal}\n\nI am showing you a screenshot of the current web page. Please analyze this screenshot carefully to understand the page layout and available interactive elements before taking any action."),
+                initial_screenshot_part  # Use the Part object directly
+            ]
+        )
+        
         # Create runner
         runner = Runner(
             app_name="BrowserAutomationAgent", 
             agent=browser_loop_agent,
             session_service=session_service
-        )
-        
-        # Create initial contents with user goal and screenshot
-        initial_content = types.Content(
-            role="user",
-            parts=[
-                types.Part(text=f"Goal: {user_goal}"),
-                initial_screenshot
-            ]
         )
         
         # Collect all response events
@@ -110,16 +113,14 @@ def run_browser_agent(
             for event in runner.run(
                 user_id=session.user_id,
                 session_id=session.id,
-                new_message=initial_content
+                new_message=initial_message,
             ):
-                # Store event for final result compilation
+                # print("EVENT : ", event)
                 response_events.append(event)
                 
-                # Log progress
                 if event.content and event.content.parts:
                     for part in event.content.parts:
-                        if hasattr(part, 'text') and part.text:
-                            logger.info(f"[{event.author}]: {part.text[:100]}...")
+                            print(f"[EVENT][{event.author}]: \n       [PART]: {part.text}\n")
             
             # Retrieve final session state
             final_session = session_service.get_session(
@@ -129,55 +130,48 @@ def run_browser_agent(
             )
             final_state = final_session.state
             
-            # Check for success or failure indicators
             task_completed = final_state.get('task_completed', False)
             task_failed = final_state.get('task_failed', False)
             max_iterations_reached = final_state.get('max_iterations_reached', False)
             
-            # Set success flag
             result["success"] = task_completed and not task_failed
             
-            # Compile final result message based on outcome
             final_result = "Browser automation completed.\n\n"
             
             if task_completed:
                 final_result += "✅ Task successfully completed.\n\n"
+                final_result += f"Result: {final_state.get('task_result', 'No detailed result provided.')}\n"
+                final_result += f"Reason: {final_state.get('task_completion_reason', 'No reason provided.')}\n\n"
             elif task_failed:
                 final_result += "❌ Task failed to complete.\n\n"
+                final_result += f"Reason: {final_state.get('task_failure_reason', 'No reason provided.')}\n"
+                final_result += f"Details: {final_state.get('task_failure_details', 'No details provided.')}\n\n"
             elif max_iterations_reached:
                 final_result += "⚠️ Maximum iterations reached without completion.\n\n"
-            
-            # Add details from final events
-            final_result += "Results:\n"
-            for event in response_events:
-                if event.is_final_response() and event.content and event.content.parts:
-                    for part in event.content.parts:
-                        if hasattr(part, 'text') and part.text:
-                            final_result += part.text + "\n"
             
             result["final_result"] = final_result
             result["events"] = response_events
             
         except Exception as runner_ex:
-            logger.error(f"Error during agent execution: {runner_ex}")
-            logger.error(traceback.format_exc())
+            print(f"[ERROR] Error during agent execution: {runner_ex}")
+            print(f"[ERROR] {traceback.format_exc()}")
             result["error"] = f"Agent execution error: {str(runner_ex)}"
             result["final_result"] = f"Browser automation failed with error: {str(runner_ex)}"
         
         return result
     
     except Exception as e:
-        logger.error(f"Error initializing browser or setup: {e}")
-        logger.error(traceback.format_exc())
+        print(f"[ERROR] Error initializing browser or setup: {e}")
+        print(f"[ERROR] {traceback.format_exc()}")
         result["error"] = f"Setup error: {str(e)}"
         result["final_result"] = f"Browser automation failed during setup: {str(e)}"
         return result
         
     finally:
-        # Ensure browser is closed
         if browser_controller is not None:
             try:
                 browser_controller.close()
-                logger.info("Browser controller closed")
+                print("[INFO] Browser controller closed")
             except Exception as close_ex:
-                logger.error(f"Error closing browser: {close_ex}")
+                print(f"[ERROR] Error closing browser: {close_ex}")
+        BROWSER_CONTROLLER = None
